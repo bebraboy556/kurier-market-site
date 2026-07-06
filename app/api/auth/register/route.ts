@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createUser, getUserByEmail, getUserByPhone } from "@/lib/models";
 import { isDatabaseAvailable } from "@/lib/db";
+import {
+  mockCreateUser,
+  mockFindUserByEmail,
+  mockFindUserByPhone,
+} from "@/lib/mock-auth-store";
 
 const registerSchema = z.object({
   name: z.string().min(1, "Имя обязательно").max(100),
@@ -15,7 +20,13 @@ const registerSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Некорректный запрос" }, { status: 400 });
+  }
+
   const parsed = registerSchema.safeParse(body);
 
   if (!parsed.success) {
@@ -33,10 +44,31 @@ export async function POST(request: NextRequest) {
   const dbAvailable = await isDatabaseAvailable();
 
   if (!dbAvailable) {
-    return NextResponse.json(
-      { error: "База данных недоступна. Регистрация временно невозможна." },
-      { status: 503 }
-    );
+    const mockExistingByEmail = email ? mockFindUserByEmail(email) : null;
+    if (mockExistingByEmail) {
+      return NextResponse.json(
+        { error: "Пользователь с таким email уже существует" },
+        { status: 409 }
+      );
+    }
+
+    const mockExistingByPhone = mockFindUserByPhone(phone);
+    if (mockExistingByPhone) {
+      return NextResponse.json(
+        { error: "Пользователь с таким телефоном уже существует" },
+        { status: 409 }
+      );
+    }
+
+    const user = mockCreateUser({
+      name,
+      email: email || undefined,
+      phone,
+      password,
+      role,
+    });
+
+    return NextResponse.json({ user }, { status: 201 });
   }
 
   const existingByEmail = email ? await getUserByEmail(email) : null;
@@ -65,3 +97,4 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ user }, { status: 201 });
 }
+
